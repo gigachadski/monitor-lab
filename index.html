@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Лабораторія монітора</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one fixed 3D stage (the monitor) sits behind the page; the scrolling panels drive its pose, its exploded view and what its screen shows. */
+:root{
+  color-scheme:dark;
+  --ink:#060912; --ink2:#0d1426; --panel:rgba(10,15,29,.78); --line:rgba(160,185,255,.16);
+  --fg:#eef2ff; --mute:#9ba7c6;
+  --r:#ff5d6c; --g:#34e3a0; --b:#6b97ff; --lamp:#ffc857; --acc:var(--b);
+  --display:'Unbounded','Trebuchet MS',Verdana,sans-serif;
+  --body:'Manrope','Segoe UI',Arial,sans-serif;
+  --mono:'JetBrains Mono','Cascadia Mono',Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(1200px 700px at 78% 30%,#14204a 0%,transparent 60%),radial-gradient(900px 600px at 10% 90%,#2a1030 0%,transparent 55%),var(--ink);background-attachment:fixed;color:var(--fg);font:16px/1.55 var(--body);overflow-x:hidden}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab;z-index:0}
+#stage.lens{cursor:crosshair}
+.nogl #stage,.nogl #labels{display:none}
+#labels{position:fixed;inset:0;pointer-events:none;z-index:1}
+.lbl{position:absolute;left:0;top:0;font:600 12px/1.2 var(--mono);color:var(--fg);background:rgba(6,9,18,.8);border:1px solid var(--line);border-left:3px solid var(--lamp);padding:5px 8px;border-radius:4px;white-space:nowrap;opacity:0;transition:opacity .3s}
+.lbl.on{opacity:1}
+main{position:relative;z-index:2;pointer-events:none;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+section{min-height:100svh;display:flex;flex-direction:column;justify-content:flex-start;padding-block:calc(44svh + 20px) 28px}
+@media (max-width:899px){#stage{height:44svh;z-index:3;background:radial-gradient(520px 300px at 70% 20%,#14204a 0%,transparent 70%),var(--ink);border-bottom:1px solid var(--line)}}
+.panel{pointer-events:auto;width:min(460px,100%);background:var(--panel);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid var(--line);border-top:3px solid var(--acc);border-radius:6px 6px 18px 18px;padding:24px;display:flex;flex-direction:column;gap:16px;opacity:.45;transform:translateY(14px);transition:opacity .5s,transform .6s cubic-bezier(.2,.8,.2,1)}
+section.on .panel{opacity:1;transform:none}
+@media (min-width:900px){
+  section{justify-content:center;padding-block:10svh}
+  .panel{margin-left:4vw;padding:30px}
+}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin:0}
+h1,h2{font-family:var(--display);font-weight:700;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:clamp(30px,5.2vw,46px);line-height:1.08}
+h2{font-size:clamp(23px,3.6vw,30px);line-height:1.15}
+p{margin:0;color:var(--mute)}
+p b,li b{color:var(--fg);font-weight:700}
+.rgb i{font-style:normal}
+.rgb .cr{color:var(--r)}.rgb .cg{color:var(--g)}.rgb .cb{color:var(--b)}
+.hud{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0;font:400 13px/1.4 var(--mono);border-top:1px dashed var(--line);padding-top:14px}
+.hud dt{color:var(--mute)}.hud dd{margin:0;color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+.hint{font:400 13px/1.4 var(--mono);color:var(--mute)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{font:600 13px/1 var(--mono);color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;transition:background .2s,border-color .2s,color .2s}
+.chip:hover{border-color:var(--acc)}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#05070f}
+.chip:focus-visible,input:focus-visible,a:focus-visible,.layer:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.btn{font:700 14px/1 var(--body);background:var(--acc);color:#05070f;border:0;border-radius:10px;padding:12px 16px;cursor:pointer}
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+.ticks{display:flex;justify-content:space-between;font:400 11px/1 var(--mono);color:var(--mute)}
+.big{font:700 clamp(30px,6vw,42px)/1 var(--display);color:var(--fg);font-variant-numeric:tabular-nums}
+.big small{font:600 14px var(--mono);color:var(--mute);margin-left:6px}
+.meter{height:10px;border-radius:5px;background:rgba(255,255,255,.07);overflow:hidden}
+.meter i{display:block;height:100%;width:6%;background:var(--acc);border-radius:5px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:14px}
+.kv dt{color:var(--mute)}.kv dd{margin:0;color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+.layers{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.layer{width:100%;text-align:left;font:600 14px/1.3 var(--body);color:var(--fg);background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:baseline}
+.layer span{font:400 11px var(--mono);color:var(--mute)}
+.layer[aria-pressed="true"]{border-color:var(--lamp);background:rgba(255,200,87,.1)}
+.note{font-size:14px;color:var(--fg);background:rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:3.2em}
+.market{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:13px;color:var(--mute)}
+.market b{font-family:var(--mono);font-weight:600;font-size:12px}
+.rail{position:fixed;right:max(14px, env(safe-area-inset-right, 0px));top:50%;transform:translateY(-50%);z-index:3;display:none;flex-direction:column;gap:14px}
+@media (min-width:900px){.rail{display:flex}}
+.rail a{display:flex;align-items:center;justify-content:flex-end;gap:10px;text-decoration:none;font:600 11px/1 var(--mono);color:transparent;transition:color .2s}
+.rail a::after{content:"";width:9px;height:9px;border-radius:2px;background:var(--line);transition:background .2s,transform .2s}
+.rail a:hover,.rail a.on{color:var(--fg)}
+.rail a.on::after{background:var(--fg);transform:scale(1.4)}
+.take{margin:0;padding:0;list-style:none;display:grid;gap:12px}
+.take li{display:grid;grid-template-columns:14px 1fr;gap:12px;align-items:baseline;color:var(--mute)}
+.take li::before{content:"";width:12px;height:12px;border-radius:2px;background:var(--c)}
+a.back{color:var(--fg);font:600 14px var(--mono)}
+.glmsg{display:none}.nogl .glmsg{display:block;color:var(--lamp)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.panel{transition:none}}
+</style>
+
+<canvas id="stage" aria-label="Тривимірна модель монітора. Її можна крутити мишею або пальцем."></canvas>
+<div id="labels" aria-hidden="true"></div>
+
+<nav class="rail" aria-label="Розділи">
+  <a href="#top">Початок</a><a href="#resolution">Роздільна здатність</a><a href="#refresh">Частота</a><a href="#response">Відгук</a><a href="#panels">Матриці</a><a href="#pick">Підбір</a><a href="#summary">Підсумок</a>
+</nav>
+
+<main>
+<section id="top" style="--acc:var(--fg)">
+  <div class="panel">
+    <p class="eyebrow">Лабораторія монітора</p>
+    <h1>Що насправді показує твій екран</h1>
+    <p class="rgb">Будь-яке зображення на моніторі складається з трьох кольорів: <i class="cr"><b>червоного</b></i>, <i class="cg"><b>зеленого</b></i> і <i class="cb"><b>синього</b></i>. Тут можна покрутити монітор, зазирнути в піксель, розібрати матрицю на шари і перевірити власну реакцію.</p>
+    <dl class="hud">
+      <dt>Твій екран</dt><dd id="hudRes">—</dd>
+      <dt>Щільність</dt><dd id="hudDpr">—</dd>
+      <dt>Оновлення</dt><dd id="hudHz">вимірюю…</dd>
+    </dl>
+    <p class="hint">Потягни монітор, щоб покрутити його. Гортай униз.</p>
+    <p class="glmsg">3D-сцена недоступна в цьому браузері, тому показано лише текст.</p>
+  </div>
+</section>
+
+<section id="resolution" style="--acc:var(--b)">
+  <div class="panel">
+    <p class="eyebrow">Синій канал · Роздільна здатність</p>
+    <h2>Скільки пікселів на екрані</h2>
+    <p>Пересувай повзунок і дивись, як змінюється картинка на моніторі. Наведи курсор на екран: <b>лупа</b> покаже окремі пікселі та їхні RGB-субпікселі.</p>
+    <input type="range" id="resRange" min="0" max="5" step="1" value="1" aria-label="Роздільна здатність">
+    <div class="ticks"><span>720p</span><span>1080p</span><span>1440p</span><span>4K</span><span>5K</span><span>8K</span></div>
+    <div class="big"><span id="resMp">2,1</span><small>млн пікселів</small></div>
+    <div class="meter" aria-hidden="true"><i id="resBar"></i></div>
+    <dl class="kv">
+      <dt>Формат</dt><dd id="resName">Full HD · 1920 × 1080</dd>
+      <dt>Порівняно з Full HD</dt><dd id="resX">× 1</dd>
+      <dt>Щільність на 27″</dt><dd id="resPpi">82 PPI</dd>
+      <dt>Лупа</dt><dd id="resZoom">× 5</dd>
+    </dl>
+    <p class="hint">Сітку на моделі зменшено в 16 разів, щоб пікселі було видно.</p>
+  </div>
+</section>
+
+<section id="refresh" style="--acc:var(--g)">
+  <div class="panel">
+    <p class="eyebrow">Зелений канал · Частота оновлення</p>
+    <h2>60, 144 і 240 Гц наживо</h2>
+    <p>Герци показують, скільки разів на секунду екран малює новий кадр. Твій монітор зараз оновлюється приблизно <b id="hzInline">…</b> разів на секунду, тому різницю чесно видно лише в сповільненні.</p>
+    <div class="row" role="group" aria-label="Швидкість часу">
+      <button class="chip" data-slow="1" aria-pressed="false">× 1</button>
+      <button class="chip" data-slow="0.25" aria-pressed="false">× 0,25</button>
+      <button class="chip" data-slow="0.1" aria-pressed="true">× 0,1</button>
+    </div>
+    <dl class="kv">
+      <dt>60 Гц</dt><dd>кадр триває 16,7 мс</dd>
+      <dt>144 Гц</dt><dd>6,9 мс</dd>
+      <dt>240 Гц</dt><dd>4,2 мс</dd>
+    </dl>
+    <h2 style="font-size:19px">Перевір себе: влуч у ціль</h2>
+    <p>Клацай по цілі на екрані монітора. Гра обмежує частоту кадрів, і на 15 Гц влучити помітно важче.</p>
+    <div class="row" role="group" aria-label="Частота кадрів у грі">
+      <button class="chip" data-cap="15" aria-pressed="false">15 Гц</button>
+      <button class="chip" data-cap="30" aria-pressed="true">30 Гц</button>
+      <button class="chip" data-cap="60" aria-pressed="false">60 Гц</button>
+      <button class="chip" data-cap="0" aria-pressed="false">Макс.</button>
+      <button class="btn" id="gameBtn">Почати 15 с</button>
+    </div>
+    <p class="note" id="gameOut">Результати з’являться тут. Спробуй різні частоти й порівняй.</p>
+  </div>
+</section>
+
+<section id="response" style="--acc:var(--r)">
+  <div class="panel">
+    <p class="eyebrow">Червоний канал · Час відгуку</p>
+    <h2>Як швидко піксель змінює колір</h2>
+    <p>Якщо піксель не встигає за кадром, за рухомим об’єктом тягнеться <b>шлейф</b>. Обери матрицю або пересунь повзунок.</p>
+    <div class="row" role="group" aria-label="Тип матриці">
+      <button class="chip" data-ms="0.03" aria-pressed="false">OLED</button>
+      <button class="chip" data-ms="1" aria-pressed="false">TN</button>
+      <button class="chip" data-ms="4" aria-pressed="true">IPS</button>
+      <button class="chip" data-ms="10" aria-pressed="false">VA</button>
+    </div>
+    <input type="range" id="msRange" min="0" max="100" step="1" value="82" aria-label="Час відгуку в мілісекундах">
+    <div class="big"><span id="msVal">4</span><small>мс</small></div>
+    <dl class="kv">
+      <dt>Шлейф при 960 пікс/с</dt><dd id="msTrail">≈ 3,8 пікс</dd>
+      <dt>Кадр на 240 Гц (4,2 мс)</dt><dd id="msOk">встигає</dd>
+    </dl>
+    <p class="hint">Шлейф на моделі збільшено в 10 разів для наочності.</p>
+  </div>
+</section>
+
+<section id="panels" style="--acc:var(--lamp)">
+  <div class="panel">
+    <p class="eyebrow">Усередині · Матриці</p>
+    <h2>Розбери монітор на шари</h2>
+    <div class="row" role="group" aria-label="Технологія">
+      <button class="chip" data-tech="lcd" aria-pressed="true">LCD</button>
+      <button class="chip" data-tech="mini" aria-pressed="false">Mini-LED</button>
+      <button class="chip" data-tech="oled" aria-pressed="false">OLED</button>
+      <button class="chip" id="darkBtn" aria-pressed="false">Вимкнути світло</button>
+    </div>
+    <ul class="layers" id="layerList"></ul>
+    <p class="note" id="layerNote"></p>
+    <dl class="kv" id="techFacts"></dl>
+    <ul class="market">
+      <li><b>Fast IPS</b> швидкий IPS, близько 1 мс</li>
+      <li><b>IPS Black</b> контраст близько 2000:1</li>
+      <li><b>WOLED</b> білий OLED з фільтрами, до 480 Гц</li>
+      <li><b>QD-OLED</b> синій OLED і квантові точки, до 500 Гц</li>
+      <li><b>Tandem OLED</b> два шари: яскравіший і довговічніший</li>
+      <li><b>MicroLED</b> неорганічні діоди, поки дуже дорогий</li>
+    </ul>
+  </div>
+</section>
+
+<section id="pick" style="--acc:var(--b)">
+  <div class="panel">
+    <p class="eyebrow">Підбір</p>
+    <h2>Який монітор потрібен тобі</h2>
+    <div class="row" role="group" aria-label="Хто ти">
+      <button class="chip" data-prof="esports" aria-pressed="true">Кіберспорт</button>
+      <button class="chip" data-prof="aaa" aria-pressed="false">Ігри</button>
+      <button class="chip" data-prof="design" aria-pressed="false">Дизайн</button>
+      <button class="chip" data-prof="office" aria-pressed="false">Офіс і код</button>
+      <button class="chip" data-prof="movie" aria-pressed="false">Кіно</button>
+    </div>
+    <dl class="kv">
+      <dt>Роздільна здатність</dt><dd id="pRes"></dd>
+      <dt>Частота</dt><dd id="pHz"></dd>
+      <dt>Матриця</dt><dd id="pPanel"></dd>
+    </dl>
+    <p class="note" id="pWhy"></p>
+  </div>
+</section>
+
+<section id="summary" style="--acc:var(--fg)">
+  <div class="panel">
+    <p class="eyebrow">Підсумок</p>
+    <h2>Три речі, які варто запам’ятати</h2>
+    <ul class="take">
+      <li style="--c:var(--b)"><span><b>Роздільна здатність</b> відповідає за чіткість. Оцінюй її разом із діагоналлю.</span></li>
+      <li style="--c:var(--g)"><span><b>Частота і час відгуку</b> відповідають за плавність. Перехід із 60 на 144 Гц помітний одразу.</span></li>
+      <li style="--c:var(--r)"><span><b>Матриця</b> визначає контраст і колір. OLED і Mini-LED зараз найкращі, IPS лишається безпечним вибором.</span></li>
+    </ul>
+    <a class="back" href="#top">На початок ↑</a>
+  </div>
+</section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt=(n,d)=>n.toLocaleString('uk-UA',{minimumFractionDigits:d,maximumFractionDigits:d});
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), lerp=(a,b,t)=>a+(b-a)*t;
+
+/* ---------- data ---------- */
+const RES=[{n:'HD',w:1280,h:720},{n:'Full HD',w:1920,h:1080},{n:'QHD',w:2560,h:1440},{n:'4K UHD',w:3840,h:2160},{n:'5K',w:5120,h:2880},{n:'8K',w:7680,h:4320}];
+const TECH={
+ lcd:{layers:[['Поляризатор і скло','pol','Пропускає світло лише однієї орієнтації. Без нього кристали нічого б не закривали.'],['Кольоровий фільтр','cf','Ділить кожен піксель на червоний, зелений і синій субпікселі.'],['Рідкі кристали і TFT','lc','Кристали повертаються під напругою і працюють як жалюзі для світла.'],['Задній поляризатор','pol','Готує світло підсвітки до проходження крізь кристали.'],['LED-підсвітка','edge','Світить постійно, навіть на чорному. Тому чорний на LCD трохи сірий.']],
+  facts:[['Контраст','1000:1 (IPS), до 5000:1 (VA)'],['Відгук','1–10 мс'],['Слабке місце','сіруватий чорний']]},
+ mini:{layers:[['Поляризатор і скло','pol','Пропускає світло лише однієї орієнтації.'],['Кольоровий фільтр','cf','Ділить кожен піксель на червоний, зелений і синій субпікселі.'],['Рідкі кристали і TFT','lc','Ті самі жалюзі для світла, що й у звичайному LCD.'],['Задній поляризатор','pol','Готує світло підсвітки до проходження крізь кристали.'],['Mini-LED підсвітка','mini','Тисячі крихітних діодів у 1000+ зонах. Темні зони пригасають, тому чорний глибший.']],
+  facts:[['Контраст','дуже високий, залежить від кількості зон'],['Яскравість HDR','1000+ ніт'],['Слабке місце','ореоли навколо яскравих об’єктів']]},
+ oled:{layers:[['Захисне скло','glass','Тонке скло з антивідблисковим шаром.'],['Органічні світлодіоди','oled','Кожен субпіксель світиться сам і повністю гасне на чорному.'],['TFT-підкладка','tft','Транзистори, які вмикають кожен субпіксель окремо.']],
+  facts:[['Контраст','нескінченний'],['Відгук','близько 0,03 мс'],['Слабке місце','вигоряння від статичних картинок']]}
+};
+const PROF={
+ esports:{res:'1080p–1440p',hz:'240–540 Гц',panel:'OLED або Fast IPS',why:'Нижча роздільна здатність дає відеокарті змогу видавати сотні кадрів на секунду.'},
+ aaa:{res:'1440p–4K, можна 21:9',hz:'144–240 Гц',panel:'IPS, Mini-LED або OLED',why:'Баланс деталей і плавності. HDR додає картинці глибини.'},
+ design:{res:'4K–5K',hz:'60–120 Гц',panel:'калібрований IPS або OLED',why:'Точність кольору (sRGB, DCI-P3, Adobe RGB) важливіша за герци.'},
+ office:{res:'1440p–4K на 27″',hz:'60–120 Гц',panel:'IPS або IPS Black',why:'Чіткий текст і жодного ризику вигоряння від статичних вікон.'},
+ movie:{res:'4K',hz:'60–144 Гц',panel:'VA, Mini-LED або OLED',why:'У темній кімнаті найважливіші контраст і HDR.'}
+};
+const S={mode:'hero',resIdx:1,slow:.1,ms:4,tech:'lcd',dark:false,layer:-1,prof:'esports',
+ game:{on:false,cap:30,score:0,miss:0,left:0,t:0,ph:[0,1,2,3],res:{}}};
+
+/* ---------- panel UI (works without WebGL) ---------- */
+function press(group,el){group.forEach(b=>b.setAttribute('aria-pressed',b===el?'true':'false'))}
+function setRes(i){S.resIdx=i;const r=RES[i],mp=r.w*r.h/1e6;
+ $('#resMp').textContent=fmt(mp,1);$('#resBar').style.width=Math.max(3,mp/33.18*100)+'%';
+ $('#resName').textContent=r.n+' · '+r.w+' × '+r.h;
+ const q=mp/2.0736;$('#resX').textContent='× '+fmt(q,q<1?2:Math.abs(q-Math.round(q))<.05?0:1);
+ $('#resPpi').textContent=Math.round(Math.hypot(r.w,r.h)/27)+' PPI';
+ $('#resZoom').textContent='× '+fmt(Math.max(1.5,r.h/16/14.6),1)}
+$('#resRange').addEventListener('input',e=>setRes(+e.target.value));setRes(1);
+const slowBtns=$$('[data-slow]');slowBtns.forEach(b=>b.addEventListener('click',()=>{S.slow=+b.dataset.slow;press(slowBtns,b)}));
+const capBtns=$$('[data-cap]');capBtns.forEach(b=>b.addEventListener('click',()=>{S.game.cap=+b.dataset.cap;press(capBtns,b)}));
+const msBtns=$$('[data-ms]');
+function setMs(ms,fromBtn){S.ms=ms;$('#msVal').textContent=ms<1?fmt(ms,2):fmt(ms,ms<10&&ms%1?1:0);
+ $('#msTrail').textContent='≈ '+fmt(.96*ms,ms<1?2:1)+' пікс';
+ $('#msOk').textContent=ms<=4.2?'встигає':'не встигає';
+ if(fromBtn)$('#msRange').value=Math.round(Math.log(ms/.03)/Math.log(400)*100);
+ press(msBtns,msBtns.find(b=>Math.abs(+b.dataset.ms-ms)<(+b.dataset.ms)*.12)||null)}
+msBtns.forEach(b=>b.addEventListener('click',()=>setMs(+b.dataset.ms,true)));
+$('#msRange').addEventListener('input',e=>{const ms=.03*Math.pow(400,e.target.value/100);setMs(ms<1?Math.round(ms*100)/100:Math.round(ms*10)/10)});setMs(4,true);
+const techBtns=$$('[data-tech]');
+function setLayer(i){S.layer=i;const L=TECH[S.tech].layers;$$('.layer').forEach((b,k)=>b.setAttribute('aria-pressed',k===i?'true':'false'));
+ $('#layerNote').textContent=i<0?'Обери шар, щоб підсвітити його в моделі й прочитати, що він робить.':L[i][2]}
+function setTech(t){S.tech=t;press(techBtns,techBtns.find(b=>b.dataset.tech===t));const T=TECH[t];
+ $('#layerList').innerHTML=T.layers.map((l,i)=>'<li><button class="layer" data-layer="'+i+'" aria-pressed="false"><span>'+(i+1)+'</span>'+l[0]+'</button></li>').join('');
+ $$('.layer').forEach(b=>b.addEventListener('click',()=>setLayer(S.layer===+b.dataset.layer?-1:+b.dataset.layer)));
+ $('#techFacts').innerHTML=T.facts.map(f=>'<dt>'+f[0]+'</dt><dd>'+f[1]+'</dd>').join('');setLayer(-1);if(window.__applyTech)window.__applyTech()}
+techBtns.forEach(b=>b.addEventListener('click',()=>setTech(b.dataset.tech)));setTech('lcd');
+$('#darkBtn').addEventListener('click',e=>{S.dark=!S.dark;e.currentTarget.setAttribute('aria-pressed',S.dark);e.currentTarget.textContent=S.dark?'Увімкнути світло':'Вимкнути світло'});
+const profBtns=$$('[data-prof]');
+function setProf(p){S.prof=p;press(profBtns,profBtns.find(b=>b.dataset.prof===p));const P=PROF[p];$('#pRes').textContent=P.res;$('#pHz').textContent=P.hz;$('#pPanel').textContent=P.panel;$('#pWhy').textContent=P.why}
+profBtns.forEach(b=>b.addEventListener('click',()=>setProf(b.dataset.prof)));setProf('esports');
+$('#hudRes').textContent=Math.round(screen.width*devicePixelRatio)+' × '+Math.round(screen.height*devicePixelRatio)+' пікс';
+$('#hudDpr').textContent='× '+fmt(devicePixelRatio,devicePixelRatio%1?2:0)+' (DPR)';
+function startGame(){const G=S.game;G.on=true;G.score=0;G.miss=0;G.left=15;G.t=0;newTarget();$('#gameBtn').textContent='Гра триває…';$('#gameOut').textContent='Клацай по цілі на екрані монітора!'}
+function newTarget(){S.game.ph=[Math.random()*6,Math.random()*6,1.3+Math.random()*1.2,1.7+Math.random()*1.4]}
+function endGame(){const G=S.game;G.on=false;G.res[G.cap||'Макс.']=G.score;$('#gameBtn').textContent='Ще раз 15 с';
+ $('#gameOut').textContent='Влучань: '+Object.keys(G.res).map(k=>(k==='Макс.'?k:k+' Гц')+' — '+G.res[k]).join(' · ')}
+$('#gameBtn').addEventListener('click',startGame);
+
+const secs=$$('main section'), rail=$$('.rail a');
+function markActive(i){secs.forEach((s,k)=>s.classList.toggle('on',k===i));rail.forEach((a,k)=>a.classList.toggle('on',k===i))}
+markActive(0);
+
+/* ---------- 3D ---------- */
+const canvas=$('#stage');let renderer;
+try{ if(!window.THREE)throw 0; renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true}); }
+catch(e){ document.body.classList.add('nogl'); secs.forEach(s=>s.classList.add('on')); return; }
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(35,1,.1,200);
+const amb=new THREE.AmbientLight(0x8fa4ff,.55);scene.add(amb);
+const key=new THREE.DirectionalLight(0xffffff,.9);key.position.set(4,6,8);scene.add(key);
+const rimR=new THREE.PointLight(0xff5d6c,1.2,30);rimR.position.set(-7,2,-3);scene.add(rimR);
+const rimB=new THREE.PointLight(0x6b97ff,1.4,30);rimB.position.set(7,-1,-4);scene.add(rimB);
+
+/* screen content canvas */
+const CW=960,CH=540,cv=document.createElement('canvas');cv.width=CW;cv.height=CH;const ctx=cv.getContext('2d');
+const tex=new THREE.CanvasTexture(cv);tex.minFilter=THREE.LinearFilter;tex.magFilter=THREE.LinearFilter;
+const U={map:{value:tex},uRes:{value:new THREE.Vector2(CW,CH)},uLens:{value:new THREE.Vector2(.62,.52)},uLensOn:{value:0},uZoom:{value:5},uAspect:{value:16/9},uWipe:{value:0},uTime:{value:0},uGrid:{value:0}};
+const screenMat=new THREE.ShaderMaterial({uniforms:U,
+ vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+ fragmentShader:`precision highp float;uniform sampler2D map;uniform vec2 uRes,uLens;uniform float uLensOn,uZoom,uAspect,uWipe,uTime,uGrid;varying vec2 vUv;
+ void main(){vec2 uv=vUv;
+  uv.x+=uWipe*.05*sin(uv.y*80.+uTime*30.)*step(.5,fract(uv.y*9.+uTime*2.));
+  float d=length((uv-uLens)*vec2(uAspect,1.));float R=.24;
+  float inL=uLensOn*(1.-smoothstep(R-.004,R,d));
+  vec2 suv=mix(uv,uLens+(uv-uLens)/uZoom,inL);
+  vec2 g=suv*uRes;vec2 cell=floor(g);vec2 f=fract(g);
+  vec3 col=texture2D(map,(cell+.5)/uRes).rgb;
+  float edge=min(min(f.x,1.-f.x),min(f.y,1.-f.y));
+  col*=mix(1.,smoothstep(0.,.07,edge)*.4+.6,uGrid*(1.-inL));
+  float sx=f.x*3.;float si=floor(sx);float sf=fract(sx);
+  vec3 m=vec3(si==0.?1.:0.,si==1.?1.:0.,si==2.?1.:0.);
+  float gx=smoothstep(0.,.18,sf)*smoothstep(1.,.82,sf);float gy=smoothstep(0.,.1,f.y)*smoothstep(1.,.9,f.y);
+  col=mix(col,col*m*gx*gy*2.6,inL);
+  float ring=uLensOn*smoothstep(R+.014,R+.006,d)*smoothstep(R-.008,R,d);
+  col=mix(col,vec3(.92,.95,1.),ring);
+  col+=uWipe*.16;
+  gl_FragColor=vec4(col,1.);}`});
+
+/* monitor model */
+const W=4.8,H=2.7,mon=new THREE.Group();scene.add(mon);
+const plastic=new THREE.MeshStandardMaterial({color:0x151a26,metalness:.55,roughness:.38});
+const metal=new THREE.MeshStandardMaterial({color:0x8d98b4,metalness:.9,roughness:.25});
+const front=new THREE.Group();mon.add(front);
+const scr=new THREE.Mesh(new THREE.PlaneGeometry(W,H),screenMat);front.add(scr);
+[[0,H/2+.05,W+.2,.1],[0,-H/2-.07,W+.2,.14],[-W/2-.05,0,.1,H+.2],[W/2+.05,0,.1,H+.2]].forEach(b=>{const m=new THREE.Mesh(new THREE.BoxGeometry(b[2],b[3],.08),plastic);m.position.set(b[0],b[1],-.02);front.add(m)});
+const shell=new THREE.Group();mon.add(shell);
+const back=new THREE.Mesh(new THREE.BoxGeometry(W+.2,H+.24,.16),plastic);back.position.set(0,-.01,-.14);shell.add(back);
+const neck=new THREE.Mesh(new THREE.BoxGeometry(.36,1.5,.12),metal);neck.position.set(0,-1.95,-.3);shell.add(neck);
+const base=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.25,.08,56),metal);base.scale.z=.62;base.position.set(0,-2.72,-.1);shell.add(base);
+mon.position.y=.66;
+
+/* layer textures */
+function mk(draw,w,h){const c=document.createElement('canvas');c.width=w||512;c.height=h||288;draw(c.getContext('2d'),c.width,c.height);const t=new THREE.CanvasTexture(c);return t}
+const TX={
+ edge:mk((x,w,h)=>{const g=x.createLinearGradient(0,h,0,0);g.addColorStop(0,'#fff0b8');g.addColorStop(.5,'#d9b85a');g.addColorStop(1,'#7c6630');x.fillStyle=g;x.fillRect(0,0,w,h);x.fillStyle='#fff';for(let i=0;i<40;i++)x.fillRect(8+i*12.6,h-9,6,5)}),
+ mini:mk((x,w,h)=>{x.fillStyle='#14110a';x.fillRect(0,0,w,h);for(let j=0;j<36;j++)for(let i=0;i<64;i++){const zx=Math.floor(i/8),zy=Math.floor(j/6),on=(Math.sin(zx*2.1+zy*1.3)+Math.cos(zx*.7-zy*2.3))>-.3;x.fillStyle=on?'#ffe9a8':'#4a401f';x.beginPath();x.arc(4+i*8,4+j*8,on?2.4:1.6,0,7);x.fill()}}),
+ pol:mk((x,w,h)=>{x.fillStyle='rgba(120,135,165,.38)';x.fillRect(0,0,w,h);x.strokeStyle='rgba(220,230,255,.22)';x.lineWidth=1;for(let i=-h;i<w;i+=9){x.beginPath();x.moveTo(i,h);x.lineTo(i+h,0);x.stroke()}}),
+ lc:mk((x,w,h)=>{x.fillStyle='rgba(80,140,255,.34)';x.fillRect(0,0,w,h);x.strokeStyle='rgba(190,215,255,.5)';for(let i=0;i<=w;i+=16){x.beginPath();x.moveTo(i,0);x.lineTo(i,h);x.stroke()}for(let j=0;j<=h;j+=16){x.beginPath();x.moveTo(0,j);x.lineTo(w,j);x.stroke()}}),
+ cf:mk((x,w,h)=>{const c=['rgba(255,80,96,.8)','rgba(52,227,160,.8)','rgba(90,140,255,.8)'];for(let i=0;i<w;i+=6){x.fillStyle=c[(i/6)%3];x.fillRect(i,0,5,h)}}),
+ tft:mk((x,w,h)=>{x.fillStyle='#0b2a22';x.fillRect(0,0,w,h);x.strokeStyle='#2fd39a';x.lineWidth=1;for(let i=0;i<=w;i+=20){x.beginPath();x.moveTo(i,0);x.lineTo(i,h);x.stroke()}for(let j=0;j<=h;j+=20){x.beginPath();x.moveTo(0,j);x.lineTo(w,j);x.stroke()}x.fillStyle='#c9ffe9';for(let j=0;j<h;j+=20)for(let i=0;i<w;i+=20)x.fillRect(i+3,j+3,5,5)}),
+ oled:mk((x,w,h)=>{x.fillStyle='#030305';x.fillRect(0,0,w,h);const c=['#ff5066','#34e3a0','#5a8cff'];for(let j=0;j<h/10;j++)for(let i=0;i<w/10;i++){const lit=Math.hypot(i-26,j-14)<11||(i>34&&i<46&&j>6&&j<12);if(!lit)continue;x.fillStyle=c[(i+j)%3];x.beginPath();x.arc(5+i*10,5+j*10,3.4,0,7);x.fill()}}),
+ glass:mk((x,w,h)=>{const g=x.createLinearGradient(0,0,w,h);g.addColorStop(0,'rgba(210,225,255,.28)');g.addColorStop(.45,'rgba(210,225,255,.05)');g.addColorStop(1,'rgba(210,225,255,.16)');x.fillStyle=g;x.fillRect(0,0,w,h)})
+};
+const layers=[],labels=[];
+for(let i=0;i<5;i++){const m=new THREE.Mesh(new THREE.PlaneGeometry(W,H),new THREE.MeshBasicMaterial({transparent:true,side:THREE.DoubleSide,depthWrite:false}));m.visible=false;mon.add(m);layers.push(m);
+ const d=document.createElement('div');d.className='lbl';$('#labels').appendChild(d);labels.push(d)}
+window.__applyTech=function(){const L=TECH[S.tech].layers;layers.forEach((m,i)=>{if(i<L.length){m.material.map=TX[L[i][1]];m.material.needsUpdate=true;labels[i].textContent=L[i][0]}})};window.__applyTech();
+
+/* floating subpixels */
+const N=500,pos=new Float32Array(N*3),colr=new Float32Array(N*3),pc=[[1,.36,.42],[.2,.89,.63],[.42,.59,1]];
+for(let i=0;i<N;i++){pos[i*3]=(Math.random()-.5)*44;pos[i*3+1]=(Math.random()-.5)*26;pos[i*3+2]=-4-Math.random()*26;const c=pc[i%3];colr.set(c,i*3)}
+const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pos,3));pg.setAttribute('color',new THREE.BufferAttribute(colr,3));
+const pm=new THREE.PointsMaterial({size:.09,vertexColors:true,transparent:true,opacity:.75});const pts=new THREE.Points(pg,pm);scene.add(pts);
+
+/* ---------- screen scenes ---------- */
+const sceneCv=document.createElement('canvas');sceneCv.width=CW;sceneCv.height=CH;
+function buildScene(){const x=sceneCv.getContext('2d');let g=x.createLinearGradient(0,0,0,400);g.addColorStop(0,'#0a0f2e');g.addColorStop(.5,'#3c2a6e');g.addColorStop(.85,'#ff7a59');g.addColorStop(1,'#ffd08a');x.fillStyle=g;x.fillRect(0,0,CW,CH);
+ let s=7;const rnd=()=>(s=(s*16807)%2147483647)/2147483647;x.fillStyle='#fff';for(let i=0;i<260;i++){x.globalAlpha=.3+rnd()*.7;x.fillRect(rnd()*CW,rnd()*230,1,1)}x.globalAlpha=1;
+ x.fillStyle='#fff3d0';x.beginPath();x.arc(690,345,58,0,7);x.fill();
+ [['#3a2a66',330,60,.008],['#211a44',380,46,.013],['#0c0b1d',440,34,.021]].forEach((m,k)=>{x.fillStyle=m[0];x.beginPath();x.moveTo(0,CH);for(let i=0;i<=CW;i+=4)x.lineTo(i,m[1]-Math.abs(Math.sin(i*m[3]+k*2))*m[2]-Math.sin(i*m[3]*3.7+k)*m[2]*.25);x.lineTo(CW,CH);x.fill()});
+ x.strokeStyle='rgba(255,255,255,.55)';x.lineWidth=1;for(let k=0;k<3;k++){x.beginPath();x.moveTo(0,300+k*9);x.quadraticCurveTo(480,345+k*9,960,292+k*9);x.stroke()}
+ x.fillStyle='#fff';x.font='700 76px Unbounded,sans-serif';x.fillText('Aa Чіткість',56,128);
+ x.font='600 22px Manrope,sans-serif';x.fillText('Дрібний текст одразу видає низьку роздільну здатність',58,172);
+ x.font='400 11px Manrope,sans-serif';x.fillText('На 4K ці літери лишаються рівними, а на 720p розсипаються на квадрати.',58,196)}
+buildScene();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(buildScene);
+let userHz=0;
+const DRAW={
+ hero(t){ctx.fillStyle='#04060c';ctx.fillRect(0,0,CW,CH);ctx.globalCompositeOperation='lighter';
+  [['255,70,90',1,.7,0],['40,230,150',.8,1.1,2],['80,130,255',1.2,.9,4]].forEach(b=>{const cx=CW/2+Math.sin(t*.5*b[1]+b[3])*280,cy=CH/2+Math.cos(t*.5*b[2]+b[3])*130,g=ctx.createRadialGradient(cx,cy,0,cx,cy,330);g.addColorStop(0,'rgba('+b[0]+',.95)');g.addColorStop(1,'rgba('+b[0]+',0)');ctx.fillStyle=g;ctx.fillRect(0,0,CW,CH)});
+  ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(255,255,255,.92)';ctx.font='700 64px Unbounded,sans-serif';ctx.textAlign='center';ctx.fillText('R + G + B',CW/2,CH/2+10);
+  ctx.font='600 20px JetBrains Mono,monospace';ctx.fillText(Math.round(screen.width*devicePixelRatio)+' × '+Math.round(screen.height*devicePixelRatio)+(userHz?' · '+userHz+' Гц':''),CW/2,CH/2+56);ctx.textAlign='left'},
+ res(){ctx.drawImage(sceneCv,0,0)},
+ hz(t,dt){simT+=dt*S.slow;ctx.fillStyle='#070b16';ctx.fillRect(0,0,CW,CH);ctx.font='600 26px JetBrains Mono,monospace';
+  [[60,'#ff5d6c'],[144,'#34e3a0'],[240,'#6b97ff']].forEach((l,k)=>{const y=110+k*160,q=Math.floor(simT*l[0])/l[0],x=170+((q*620)%740);
+   ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(160,y-2,770,4);ctx.fillStyle='#eef2ff';ctx.fillText(l[0]+' Гц',24,y+9);
+   ctx.fillStyle=l[1];ctx.beginPath();ctx.arc(x,y,30,0,7);ctx.fill();ctx.fillStyle='#070b16';ctx.beginPath();ctx.arc(x+9,y-8,7,0,7);ctx.fill();
+   ctx.fillStyle='rgba(238,242,255,.55)';ctx.font='400 16px JetBrains Mono,monospace';ctx.fillText('кадр '+Math.floor(simT*l[0])%1000,24,y+34);ctx.font='600 26px JetBrains Mono,monospace'});
+  ctx.fillStyle='rgba(238,242,255,.6)';ctx.font='400 18px JetBrains Mono,monospace';ctx.fillText('швидкість часу × '+String(S.slow).replace('.',','),700,34)},
+ game(t,dt){const G=S.game;G.t+=dt;G.left-=dt;if(G.left<=0){endGame();return}
+  const dt2=G.cap?Math.floor(G.t*G.cap)/G.cap:G.t,p=tpos(dt2);ctx.fillStyle='#0a0f1c';ctx.fillRect(0,0,CW,CH);
+  ctx.strokeStyle='rgba(52,227,160,.14)';ctx.lineWidth=1;for(let i=0;i<CW;i+=60){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,CH);ctx.stroke()}for(let j=0;j<CH;j+=60){ctx.beginPath();ctx.moveTo(0,j);ctx.lineTo(CW,j);ctx.stroke()}
+  ctx.fillStyle='#ff5d6c';ctx.beginPath();ctx.arc(p.x,p.y,34,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(p.x,p.y,21,0,7);ctx.fill();ctx.fillStyle='#ff5d6c';ctx.beginPath();ctx.arc(p.x,p.y,9,0,7);ctx.fill();
+  ctx.fillStyle='#eef2ff';ctx.font='600 24px JetBrains Mono,monospace';ctx.fillText((G.cap||'макс.')+(G.cap?' Гц':'')+' · влучань '+G.score+' · '+Math.ceil(G.left)+' с',24,40)},
+ ghost(t,dt){ctx.fillStyle='#1a2233';ctx.fillRect(0,0,CW,CH);const x=((t*420)%(CW+400))-200,tr=.96*S.ms*10,n=Math.min(44,Math.ceil(tr/3));
+  const ufo=(px,a)=>{ctx.globalAlpha=a;ctx.fillStyle='#eef2ff';ctx.beginPath();ctx.ellipse(px,210,74,24,0,0,7);ctx.fill();ctx.beginPath();ctx.ellipse(px,192,34,26,0,Math.PI,0);ctx.fill();ctx.font='700 54px Unbounded,sans-serif';ctx.fillText('ВІДГУК',px-128,370)};
+  for(let k=n;k>=1;k--)ufo(x-tr*k/n,.5*Math.exp(-3*k/n)*(n>1?1:0));ufo(x,1);ctx.globalAlpha=1;
+  ctx.fillStyle='#ff5d6c';[-40,0,40].forEach(o=>{ctx.beginPath();ctx.arc(x+o,214,6,0,7);ctx.fill()});
+  ctx.fillStyle='rgba(238,242,255,.6)';ctx.font='400 18px JetBrains Mono,monospace';ctx.fillText('відгук '+String(S.ms).replace('.',',')+' мс',24,36)},
+ dark(t){const lcd=S.tech==='lcd';ctx.fillStyle=lcd?'#161a22':'#000';ctx.fillRect(0,0,CW,CH);
+  if(lcd)[[0,0],[CW,0],[0,CH],[CW,CH]].forEach(c=>{const g=ctx.createRadialGradient(c[0],c[1],0,c[0],c[1],330);g.addColorStop(0,'rgba(120,130,160,.38)');g.addColorStop(1,'rgba(120,130,160,0)');ctx.fillStyle=g;ctx.fillRect(0,0,CW,CH)});
+  if(S.tech==='mini'){const g=ctx.createRadialGradient(660,200,50,660,200,190);g.addColorStop(0,'rgba(150,165,200,.42)');g.addColorStop(1,'rgba(150,165,200,0)');ctx.fillStyle=g;ctx.fillRect(0,0,CW,CH)}
+  let s=11;const rnd=()=>(s=(s*16807)%2147483647)/2147483647;ctx.fillStyle='#fff';for(let i=0;i<90;i++){ctx.globalAlpha=.4+.6*Math.abs(Math.sin(t*.8+i));ctx.fillRect(rnd()*CW,rnd()*CH,2,2)}ctx.globalAlpha=1;
+  ctx.beginPath();ctx.arc(660,200,62,0,7);ctx.fill();ctx.fillStyle=lcd?'#161a22':'#000';ctx.beginPath();ctx.arc(686,186,52,0,7);ctx.fill();
+  ctx.fillStyle='rgba(238,242,255,.8)';ctx.font='600 22px JetBrains Mono,monospace';ctx.fillText(lcd?'LCD: чорний світиться сірим':S.tech==='mini'?'Mini-LED: ореол біля місяця':'OLED: чорний справді чорний',24,CH-28)},
+ pick(t){const p=S.prof;
+  if(p==='esports'){ctx.fillStyle='#080d19';ctx.fillRect(0,0,CW,CH);ctx.strokeStyle='rgba(52,227,160,.5)';ctx.lineWidth=1.5;for(let i=-12;i<=12;i++){ctx.beginPath();ctx.moveTo(CW/2+i*18,270);ctx.lineTo(CW/2+i*150,CH);ctx.stroke()}for(let k=0;k<9;k++){const z=((k+t*1.6)%9)/9,y=270+z*z*270;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(CW,y);ctx.stroke()}
+   const tx=CW/2+Math.sin(t*2.3)*300,ty=190+Math.sin(t*3.1)*70;ctx.fillStyle='#ff5d6c';ctx.beginPath();ctx.arc(tx,ty,22,0,7);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(CW/2-18,230);ctx.lineTo(CW/2+18,230);ctx.moveTo(CW/2,212);ctx.lineTo(CW/2,248);ctx.stroke();ctx.fillStyle='#34e3a0';ctx.font='600 24px JetBrains Mono,monospace';ctx.fillText('540 кадрів/с',24,40)}
+  else if(p==='aaa'){ctx.drawImage(sceneCv,0,0);ctx.fillStyle='#04060c';ctx.fillRect(0,0,CW,220);ctx.drawImage(sceneCv,0,200,CW,340,0,0,CW,CH);ctx.fillStyle='rgba(4,6,12,.6)';ctx.fillRect(24,CH-64,300,40);ctx.fillStyle='#ff5d6c';ctx.fillRect(30,CH-58,210+Math.sin(t)*40,28);ctx.fillStyle='#fff';ctx.font='600 20px JetBrains Mono,monospace';ctx.fillText('HDR · 165 Гц',CW-190,40)}
+  else if(p==='design'){ctx.fillStyle='#1c1f27';ctx.fillRect(0,0,CW,CH);ctx.fillStyle='#2a2e39';ctx.fillRect(0,0,70,CH);for(let j=0;j<5;j++)for(let i=0;i<12;i++){ctx.fillStyle='hsl('+i*30+','+(90-j*12)+'%,'+(32+j*11)+'%)';ctx.fillRect(110+i*68,50+j*68,60,60)}const g=ctx.createLinearGradient(110,0,920,0);for(let k=0;k<=6;k++)g.addColorStop(k/6,'hsl('+k*60+',95%,55%)');ctx.fillStyle=g;ctx.fillRect(110,410,810,34);const g2=ctx.createLinearGradient(110,0,920,0);g2.addColorStop(0,'#000');g2.addColorStop(1,'#fff');ctx.fillStyle=g2;ctx.fillRect(110,456,810,34);ctx.fillStyle='#fff';ctx.font='600 18px JetBrains Mono,monospace';ctx.fillText('ΔE < 2 · DCI-P3 98%',680,30)}
+  else if(p==='office'){ctx.fillStyle='#0e1320';ctx.fillRect(0,0,CW,CH);ctx.fillStyle='#161d2f';ctx.fillRect(0,0,190,CH);const c=['#6b97ff','#34e3a0','#ffc857','#ff5d6c','#9ba7c6'];for(let j=0;j<19;j++){const ind=[0,1,2,2,1,2,3,3,2,1,0,0,1,2,2,3,2,1,0][j];let x0=220+ind*30;for(let k=0;k<3+(j*7)%3;k++){const w=40+((j*31+k*57)%110);ctx.fillStyle=c[(j+k*2)%5];ctx.fillRect(x0,34+j*25,w,11);x0+=w+12}ctx.fillStyle='#3a4560';ctx.fillRect(22,34+j*25,90+((j*37)%60),11)}if(Math.floor(t*2)%2)ctx.fillStyle='#fff',ctx.fillRect(520,34+7*25-3,3,17)}
+  else{ctx.fillStyle='#000';ctx.fillRect(0,0,CW,CH);ctx.drawImage(sceneCv,0,90,CW,400,0,70,CW,400);ctx.fillStyle='#000';ctx.fillRect(0,0,CW,70);ctx.fillRect(0,CH-70,CW,70);ctx.fillStyle='#fff';ctx.font='600 22px Manrope,sans-serif';ctx.textAlign='center';ctx.fillText('— Дивись, який захід сонця.',CW/2,CH-92);ctx.textAlign='left'}}
+};
+DRAW.tech=DRAW.res;
+let simT=0;
+function tpos(t){const p=S.game.ph;return{x:CW/2+Math.sin(t*p[2]+p[0])*380,y:CH/2+Math.sin(t*p[3]+p[1])*190}}
+
+/* ---------- poses ---------- */
+const POSE=[{yaw:-.5,pitch:.1,zoom:1.12,ex:0},{yaw:0,pitch:0,zoom:.94,ex:0},{yaw:0,pitch:0,zoom:.94,ex:0},{yaw:0,pitch:0,zoom:.94,ex:0},{yaw:-1.0,pitch:.14,zoom:1.5,ex:1},{yaw:.3,pitch:.05,zoom:1.12,ex:0},{yaw:-.35,pitch:.08,zoom:1.2,ex:0}];
+const MODES=['hero','res','hz','ghost','tech','pick','hero'];
+const cur={yaw:-.5,pitch:.1,zoom:1.3,ex:0,sx:1,lens:0,room:1};
+let wide=true,baseD=10,userYaw=0,userPitch=0,active=0;
+function layout(){wide=innerWidth>=900;const w=canvas.clientWidth||innerWidth,h=canvas.clientHeight||innerHeight;renderer.setSize(w,h,false);cam.aspect=w/h;
+ if(wide)cam.setViewOffset(w,h,-w*.2,0,w,h);else cam.clearViewOffset();cam.updateProjectionMatrix();
+ baseD=wide?Math.max(5.7/(.63*cam.aspect*.5),9):Math.max(5.7/(.63*cam.aspect*.92),4.6/(.63*.9))}
+addEventListener('resize',layout);layout();
+
+/* ---------- pointer ---------- */
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();let down=null;
+function hitUv(e){const r=canvas.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(ndc,cam);const h=ray.intersectObject(scr)[0];return h?h.uv:null}
+canvas.addEventListener('pointerdown',e=>{const uv=hitUv(e);down={x:e.clientX,y:e.clientY,moved:false,lens:S.mode==='res'&&!!uv};if(down.lens)U.uLens.value.copy(uv);try{canvas.setPointerCapture(e.pointerId)}catch(_){}});
+canvas.addEventListener('pointermove',e=>{const uv=hitUv(e);
+ if(S.mode==='res'){canvas.classList.toggle('lens',!!uv);if(uv&&(!down||down.lens))U.uLens.value.copy(uv)}else canvas.classList.remove('lens');
+ if(down&&!down.lens){const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.abs(dx)+Math.abs(dy)>4)down.moved=true;userYaw=clamp(userYaw+dx*.006,-1.4,1.4);userPitch=clamp(userPitch+dy*.004,-.5,.5);down.x=e.clientX;down.y=e.clientY}});
+function up(e){if(down&&!down.moved&&S.mode==='game'&&S.game.on){const uv=hitUv(e);if(uv){const p=tpos(S.game.t);if(Math.hypot(uv.x*CW-p.x,(1-uv.y)*CH-p.y)<46){S.game.score++;newTarget();U.uWipe.value=.5}else S.game.miss++}}down=null}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',()=>down=null);
+
+/* ---------- loop ---------- */
+let last=performance.now(),T=0;const deltas=[];let frames=0;const v3=new THREE.Vector3();
+function frame(now){requestAnimationFrame(frame);const raw=now-last;last=now;const dt=Math.min(.05,raw/1000);T+=dt;frames++;
+ if(!userHz&&frames>20){deltas.push(raw);if(deltas.length>=70){deltas.sort((a,b)=>a-b);const hz=1000/deltas[35];userHz=[60,75,90,100,120,144,165,180,240,360].reduce((a,b)=>Math.abs(b-hz)<Math.abs(a-hz)?b:a);$('#hudHz').textContent='≈ '+userHz+' Гц';$('#hzInline').textContent=userHz}}
+ /* which section */
+ const mid=innerHeight*(wide?.5:.3),Z=innerHeight*.4;let idx=0,i=0,e=0;
+ for(let k=0;k<secs.length;k++){const r=secs[k].getBoundingClientRect();if(mid>=r.top||k===0){idx=k;const dp=mid-r.top,dn=r.bottom-mid;
+  if(k>0&&dp<Z/2){i=k-1;e=.5+dp/Z}else if(k<secs.length-1&&dn<Z/2){i=k;e=.5-dn/Z}else{i=Math.min(k,secs.length-2);e=k===secs.length-1?1:0}}}
+ e=clamp(e,0,1);const te=e*e*(3-2*e),a=POSE[i],b=POSE[i+1];
+ if(idx!==active){active=idx;markActive(idx)}
+ let mode=MODES[idx];if(mode==='hz'&&S.game.on)mode='game';if(mode==='tech'&&S.dark)mode='dark';
+ if(mode!==S.mode){S.mode=mode;if(!reduce)U.uWipe.value=1}
+ const tg={yaw:lerp(a.yaw,b.yaw,te),pitch:lerp(a.pitch,b.pitch,te),zoom:lerp(a.zoom,b.zoom,te),ex:lerp(a.ex,b.ex,te)};
+ if(mode==='dark'){tg.ex=0;tg.yaw=-.3;tg.zoom=1.05}
+ const k=1-Math.exp(-dt*5);
+ cur.yaw+=(tg.yaw-cur.yaw)*k;cur.pitch+=(tg.pitch-cur.pitch)*k;cur.zoom+=(tg.zoom-cur.zoom)*k;cur.ex+=(tg.ex-cur.ex)*k;
+ cur.sx+=((mode==='pick'&&S.prof==='aaa'?1.32:1)-cur.sx)*k;cur.lens+=((mode==='res'?1:0)-cur.lens)*k;cur.room+=((mode==='dark'?.12:1)-cur.room)*k;
+ if(!down){userYaw*=Math.exp(-dt*.9);userPitch*=Math.exp(-dt*.9)}
+ const sway=reduce?0:Math.sin(T*.6)*.06*(1-cur.lens);
+ mon.rotation.set(cur.pitch+userPitch,cur.yaw+userYaw+sway,0);mon.scale.x=cur.sx;
+ cam.position.set(0,0,baseD*cur.zoom*(1+(cur.sx-1)*.6));cam.lookAt(0,0,0);
+ /* exploded stack */
+ const L=TECH[S.tech].layers,sp=.78*cur.ex;
+ layers.forEach((m,n)=>{m.visible=cur.ex>.03&&n<L.length;m.position.z=-.06-(n+1)*sp;const sel=S.layer<0||S.layer===n;m.material.opacity+=((sel?.95:.22)-m.material.opacity)*k;const s=S.layer===n?1.05:1;m.scale.x+=(s-m.scale.x)*k;m.scale.y+=(s-m.scale.y)*k;
+  const lb=labels[n];if(m.visible&&wide&&cur.ex>.6){v3.set(W/2,H/2,0).applyMatrix4(m.matrixWorld).project(cam);lb.style.transform='translate('+Math.min(innerWidth-lb.offsetWidth-34,(v3.x*.5+.5)*innerWidth-lb.offsetWidth*.5)+'px,'+((-v3.y*.5+.5)*innerHeight-34-(n%3)*28)+'px)';lb.classList.add('on')}else lb.classList.remove('on')});
+ shell.position.z=-(L.length+1)*sp;
+ /* screen */
+ U.uTime.value=T;U.uWipe.value*=Math.exp(-dt*5);
+ const rows=RES[S.resIdx].h/16;
+ if(mode==='res'){U.uRes.value.set(rows*16/9,rows);U.uZoom.value=Math.max(1.5,rows/14.6);U.uGrid.value=clamp((130-rows)/70,0,1)}else{U.uRes.value.set(CW,CH);U.uGrid.value=0}
+ U.uLensOn.value=cur.lens>.5?1:0;
+ (DRAW[mode]||DRAW.hero)(T,dt);tex.needsUpdate=true;
+ amb.intensity=.55*cur.room;key.intensity=.9*cur.room;rimR.intensity=1.2*cur.room;rimB.intensity=1.4*cur.room;pm.opacity=.75*cur.room;
+ if(!reduce)pts.rotation.y=T*.012;
+ renderer.render(scene,cam)}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
